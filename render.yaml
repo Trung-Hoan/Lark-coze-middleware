@@ -1,0 +1,35 @@
+services:
+  - type: web
+    name: lark-coze-middleware
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port 8000
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11
+      - key: LARK_APP_ID
+        sync: false
+      - key: LARK_APP_SECRET
+        sync: false
+      - key: LARK_VERIFICATION_TOKEN
+        sync: false
+      - key: LARK_ENCRYPT_KEY
+        sync: false
+      - key: LARK_BOT_NAME
+        value: Da VinCi
+      - key: COZE_TOKEN
+        sync: false
+      - key: COZE_BOT_ID
+        value: "7659443401871550000"
+      - key: COZE_BASE_URL
+        value: https://api.coze.cn
+      - key: COZE_API_VERSION
+        value: v3
+      - key: DATABASE_PATH
+        value: lark_coze.db
+      - key: FALLBACK_MESSAGE
+        value: Xin lỗi, tôi đang gặp lỗi. Vui lòng thử lại sau.
+      - key: WEBHOOK_PATH
+        value: /webhook
