@@ -43,6 +43,10 @@ def verify_lark_signature(signature: str, timestamp: str, nonce: str, body: str)
     if not key:
         return True
 
+    if not all(isinstance(v, str) for v in [signature, timestamp, nonce, body]):
+        print("[WEBHOOK] Signature verification skipped: missing values")
+        return False
+
     try:
         bytes_b = "".join([timestamp, nonce, key, body]).encode("utf-8")
         hmac_code = hmac.new(key.encode("utf-8"), bytes_b, hashlib.sha256).digest()
