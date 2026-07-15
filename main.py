@@ -117,18 +117,31 @@ async def lark_webhook(request: Request):
     body = await request.body()
     body_str = body.decode("utf-8")
 
-    data = json.loads(body_str)
+    print(f"[WEBHOOK] Received request: {body_str[:500]}")
+    print(f"[WEBHOOK] Headers: {dict(request.headers)}")
 
-    # URL verification challenge
+    try:
+        data = json.loads(body_str)
+    except json.JSONDecodeError as e:
+        print(f"[WEBHOOK] JSON parse error: {e}")
+        return JSONResponse(status_code=400, content={"error": "invalid json"})
+
+    # URL verification challenge: ưu tiên trả về ngay, không check signature
+    # Lark cần nhận lại challenge để verify URL
     if data.get("type") == "url_verification":
-        return {"challenge": data.get("challenge")}
+        challenge = data.get("challenge")
+        print(f"[WEBHOOK] URL verification challenge: {challenge}")
+        return {"challenge": challenge}
 
-    # Xác thực signature
+    # Xác thực signature cho các event thật
     signature = request.headers.get("X-Lark-Signature")
     timestamp = request.headers.get("X-Lark-Timestamp")
     nonce = request.headers.get("X-Lark-Nonce")
 
+    print(f"[WEBHOOK] Signature: {signature}, Timestamp: {timestamp}, Nonce: {nonce}")
+
     if signature and not verify_lark_signature(signature, timestamp, nonce, body_str):
+        print("[WEBHOOK] Signature verification failed")
         return JSONResponse(status_code=401, content={"error": "unauthorized"})
 
     event = data.get("event")
@@ -139,6 +152,14 @@ async def lark_webhook(request: Request):
             print(f"[ERROR] Process message failed: {e}")
 
     return {"code": 0}
+
+
+@app.on_event("startup")
+async def startup_event():
+    print("[STARTUP] Lark - Coze.cn Middleware started")
+    print(f"[STARTUP] Webhook path: {settings.WEBHOOK_PATH}")
+    print(f"[STARTUP] Coze base URL: {settings.COZE_BASE_URL}")
+    print(f"[STARTUP] Bot name: {settings.LARK_BOT_NAME}")
 
 
 @app.get("/")
