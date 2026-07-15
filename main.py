@@ -61,12 +61,21 @@ def remove_mention(text: str, message: dict) -> str:
     mentions = message.get("mentions") or []
     for m in mentions:
         if m.get("name") == settings.LARK_BOT_NAME:
-            key = m.get("key", "")
+            key = m.get("key") or ""
             text = text.replace(key, "").strip()
     return text
 
 
 def process_message(event: dict):
+    try:
+        _process_message(event)
+    except Exception as e:
+        print(f"[ERROR] process_message exception: {e}")
+        import traceback
+        traceback.print_exc()
+
+
+def _process_message(event: dict):
     message = event.get("message", {})
     sender = event.get("sender", {}).get("sender_id", {})
 
@@ -76,13 +85,17 @@ def process_message(event: dict):
     msg_type = message.get("message_type")
     chat_type = message.get("chat_type")
 
+    print(f"[PROCESS] user={lark_user_id}, chat={chat_id}, msg_type={msg_type}, chat_type={chat_type}")
+
     if not lark_user_id or not chat_id or not message_id:
+        print("[PROCESS] Missing required fields, skip")
         return
 
     # Group chat: chỉ phản hồi khi bot bị @mention
     if chat_type == "group":
         mentions = message.get("mentions") or []
         if not any(m.get("name") == settings.LARK_BOT_NAME for m in mentions):
+            print("[PROCESS] Group message without mention, skip")
             return
 
     # Lấy hoặc tạo Coze conversation cho user
@@ -90,21 +103,32 @@ def process_message(event: dict):
     if not conversation_id:
         conversation_id = coze_client.create_conversation()
         db.save_conversation_id(lark_user_id, conversation_id)
+        print(f"[PROCESS] Created conversation: {conversation_id}")
 
     messages = []
 
     if msg_type == "text":
-        content = json.loads(message.get("content", "{}"))
+        try:
+            content = json.loads(message.get("content", "{}"))
+        except json.JSONDecodeError:
+            print(f"[PROCESS] Failed to parse text content")
+            return
         text = remove_mention(content.get("text", ""), message)
         if not text:
+            print("[PROCESS] Empty text after mention removal, skip")
             return
         messages.append({"role": "user", "content_type": "text", "content": text})
         db.save_message(lark_user_id, "user", text, "text")
 
     elif msg_type == "image":
-        content = json.loads(message.get("content", "{}"))
+        try:
+            content = json.loads(message.get("content", "{}"))
+        except json.JSONDecodeError:
+            print(f"[PROCESS] Failed to parse image content")
+            return
         image_key = content.get("image_key")
         if not image_key:
+            print("[PROCESS] Missing image_key, skip")
             return
         file_content = lark_client.download_resource(message_id, image_key, "image")
         file_id = coze_client.upload_file(file_content, "image.png")
@@ -112,10 +136,15 @@ def process_message(event: dict):
         db.save_message(lark_user_id, "user", file_id, "image")
 
     elif msg_type == "file":
-        content = json.loads(message.get("content", "{}"))
+        try:
+            content = json.loads(message.get("content", "{}"))
+        except json.JSONDecodeError:
+            print(f"[PROCESS] Failed to parse file content")
+            return
         file_key = content.get("file_key")
         file_name = content.get("file_name", "file")
         if not file_key:
+            print("[PROCESS] Missing file_key, skip")
             return
         file_content = lark_client.download_resource(message_id, file_key, "file")
         file_id = coze_client.upload_file(file_content, file_name)
@@ -123,16 +152,22 @@ def process_message(event: dict):
         db.save_message(lark_user_id, "user", file_id, "file")
 
     else:
-        # Các loại tin nhắn khác chưa hỗ trợ
+        print(f"[PROCESS] Unsupported message type: {msg_type}")
         return
 
     try:
+        print(f"[PROCESS] Calling Coze chat with {len(messages)} messages")
         reply = coze_client.chat(conversation_id, lark_user_id, messages, stream=True)
+        print(f"[PROCESS] Coze reply: {reply[:200]}")
         db.save_message(lark_user_id, "assistant", reply, "text")
         lark_client.send_text_message(chat_id, reply)
+        print("[PROCESS] Reply sent to Lark")
     except Exception as e:
         print(f"[ERROR] Coze chat failed: {e}")
-        lark_client.send_text_message(chat_id, settings.FALLBACK_MESSAGE)
+        try:
+            lark_client.send_text_message(chat_id, settings.FALLBACK_MESSAGE)
+        except Exception as e2:
+            print(f"[ERROR] Failed to send fallback message: {e2}")
 
 
 @app.post(settings.WEBHOOK_PATH)
