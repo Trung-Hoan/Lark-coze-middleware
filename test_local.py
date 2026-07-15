@@ -3,7 +3,7 @@ import time
 import sys
 import os
 
-project_dir = r"C:\Users\Hoan\Desktop\lark-coze-middleware"
+project_dir = r"C:\Users\Hoan\Desktop\CoreCN-LarkGlobal\lark-coze-middleware"
 python_exe = os.path.join(project_dir, "venv", "Scripts", "python.exe")
 
 # Start uvicorn

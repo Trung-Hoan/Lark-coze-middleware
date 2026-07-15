@@ -98,12 +98,8 @@ def _process_message(event: dict):
             print("[PROCESS] Group message without mention, skip")
             return
 
-    # Lấy hoặc tạo Coze conversation cho user
+    # Lấy conversation_id đã lưu (nếu có)
     conversation_id = db.get_conversation_id(lark_user_id)
-    if not conversation_id:
-        conversation_id = coze_client.create_conversation()
-        db.save_conversation_id(lark_user_id, conversation_id)
-        print(f"[PROCESS] Created conversation: {conversation_id}")
 
     messages = []
 
@@ -156,9 +152,12 @@ def _process_message(event: dict):
         return
 
     try:
-        print(f"[PROCESS] Calling Coze chat with {len(messages)} messages")
-        reply = coze_client.chat(conversation_id, lark_user_id, messages, stream=True)
+        print(f"[PROCESS] Calling Coze chat with {len(messages)} messages, conversation={conversation_id}")
+        reply, new_conversation_id = coze_client.chat(conversation_id, lark_user_id, messages, stream=True)
         print(f"[PROCESS] Coze reply: {reply[:200]}")
+        if new_conversation_id:
+            db.save_conversation_id(lark_user_id, new_conversation_id)
+            print(f"[PROCESS] Saved conversation_id: {new_conversation_id}")
         db.save_message(lark_user_id, "assistant", reply, "text")
         lark_client.send_text_message(chat_id, reply)
         print("[PROCESS] Reply sent to Lark")
@@ -202,8 +201,8 @@ async def lark_webhook(request: Request):
 
     # Xác thực signature cho các event thật
     signature = request.headers.get("X-Lark-Signature")
-    timestamp = request.headers.get("X-Lark-Timestamp")
-    nonce = request.headers.get("X-Lark-Nonce")
+    timestamp = request.headers.get("X-Lark-Request-Timestamp")
+    nonce = request.headers.get("X-Lark-Request-Nonce")
 
     print(f"[WEBHOOK] Signature: {signature}, Timestamp: {timestamp}, Nonce: {nonce}")
 

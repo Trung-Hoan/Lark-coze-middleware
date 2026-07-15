@@ -33,15 +33,17 @@ class CozeClient:
             raise RuntimeError(f"Coze upload file failed: {data}")
         return data["data"]["id"]
 
-    def chat(self, conversation_id: str, user_id: str, messages: list, stream: bool = True) -> str:
+    def chat(self, conversation_id: str | None, user_id: str, messages: list, stream: bool = True) -> tuple[str, str | None]:
         url = f"{self.base_url}/v3/chat"
         payload = {
             "bot_id": self.bot_id,
-            "conversation_id": conversation_id,
             "user_id": user_id,
             "additional_messages": messages,
             "stream": stream
         }
+        if conversation_id:
+            payload["conversation_id"] = conversation_id
+
         resp = requests.post(
             url,
             headers=self.headers,
@@ -57,10 +59,11 @@ class CozeClient:
             data = resp.json()
             if data.get("code") != 0:
                 raise RuntimeError(f"Coze chat failed: {data}")
-            return self._extract_answer(data)
+            return self._extract_answer(data), data.get("data", {}).get("conversation_id")
 
-    def _parse_stream(self, resp) -> str:
+    def _parse_stream(self, resp) -> tuple[str, str | None]:
         full_text = ""
+        conversation_id = None
         for raw_line in resp.iter_lines():
             if not raw_line:
                 continue
@@ -71,13 +74,22 @@ class CozeClient:
                 data = json.loads(line[5:])
             except json.JSONDecodeError:
                 continue
+
             event = data.get("event")
-            msg = data.get("message", {})
-            if event == "conversation.message.completed" and msg.get("role") == "assistant":
-                content = msg.get("content", "")
-                if content:
-                    full_text += content
-        return full_text or "(Không có phản hồi)"
+            event_data = data.get("data", {})
+
+            # Extract conversation_id from the first event
+            if not conversation_id:
+                conversation_id = event_data.get("conversation_id") or event_data.get("id")
+
+            if event == "conversation.message.completed":
+                msg = event_data.get("message", {})
+                if msg.get("role") == "assistant":
+                    content = msg.get("content", "")
+                    if content:
+                        full_text += content
+
+        return full_text or "(Không có phản hồi)", conversation_id
 
     def _extract_answer(self, data: dict) -> str:
         messages = data.get("data", {}).get("messages", [])
