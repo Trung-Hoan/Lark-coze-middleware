@@ -4,6 +4,8 @@ import hashlib
 import base64
 import binascii
 
+from Crypto.Cipher import AES
+from Crypto.Util.Padding import unpad
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
 
@@ -16,6 +18,23 @@ app = FastAPI(title="Lark - Coze.cn Middleware")
 db = Database(settings.DATABASE_PATH)
 lark_client = LarkClient()
 coze_client = CozeClient()
+
+
+def decrypt_lark_payload(encrypt_b64: str, encrypt_key: str) -> str:
+    """Giải mã payload webhook của Lark bằng AES-256-CBC."""
+    if not encrypt_key:
+        raise ValueError("LARK_ENCRYPT_KEY is not set")
+
+    key = hashlib.sha256(encrypt_key.encode("utf-8")).digest()
+    encrypted = base64.b64decode(encrypt_b64)
+
+    iv = encrypted[:16]
+    ciphertext = encrypted[16:]
+
+    cipher = AES.new(key, AES.MODE_CBC, iv)
+    decrypted = cipher.decrypt(ciphertext)
+    decrypted = unpad(decrypted, AES.block_size)
+    return decrypted.decode("utf-8")
 
 
 def verify_lark_signature(signature: str, timestamp: str, nonce: str, body: str) -> bool:
@@ -117,7 +136,7 @@ async def lark_webhook(request: Request):
     body = await request.body()
     body_str = body.decode("utf-8")
 
-    print(f"[WEBHOOK] Received request: {body_str[:500]}")
+    print(f"[WEBHOOK] Raw request: {body_str[:500]}")
     print(f"[WEBHOOK] Headers: {dict(request.headers)}")
 
     try:
@@ -126,8 +145,17 @@ async def lark_webhook(request: Request):
         print(f"[WEBHOOK] JSON parse error: {e}")
         return JSONResponse(status_code=400, content={"error": "invalid json"})
 
+    # Nếu Lark gửi payload đã mã hóa, giải mã trước
+    if "encrypt" in data:
+        try:
+            body_str = decrypt_lark_payload(data["encrypt"], settings.LARK_ENCRYPT_KEY)
+            print(f"[WEBHOOK] Decrypted: {body_str[:500]}")
+            data = json.loads(body_str)
+        except Exception as e:
+            print(f"[WEBHOOK] Decryption failed: {e}")
+            return JSONResponse(status_code=400, content={"error": "decryption failed"})
+
     # URL verification challenge: ưu tiên trả về ngay, không check signature
-    # Lark cần nhận lại challenge để verify URL
     if data.get("type") == "url_verification":
         challenge = data.get("challenge")
         print(f"[WEBHOOK] URL verification challenge: {challenge}")
