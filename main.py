@@ -172,9 +172,12 @@ async def lark_webhook(request: Request):
 
     print(f"[WEBHOOK] Signature: {signature}, Timestamp: {timestamp}, Nonce: {nonce}")
 
-    if signature and not verify_lark_signature(signature, timestamp, nonce, body_str):
-        print("[WEBHOOK] Signature verification failed")
-        return JSONResponse(status_code=401, content={"error": "unauthorized"})
+    if signature and timestamp and nonce:
+        if not verify_lark_signature(signature, timestamp, nonce, body_str):
+            print("[WEBHOOK] Signature verification failed")
+            return JSONResponse(status_code=401, content={"error": "unauthorized"})
+    else:
+        print("[WEBHOOK] Missing signature headers, skipping verification")
 
     event = data.get("event")
     if event:
